@@ -1,0 +1,7 @@
+{
+  "name": "QARI",
+  "description": "An AI-powered Qur'an recitation coach providing Tajweed corrections and feedback.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

@@ -1,5 +1,5 @@
 
-# QariAI - AI-Powered Qur'an Recitation Coach
+export const README_CONTENT = `# QariAI - AI-Powered Qur'an Recitation Coach
 
 ![QariAI Banner](https://via.placeholder.com/1200x400?text=QariAI+Recitation+Coach)
 
@@ -25,7 +25,7 @@
 
 ### 🤖 Dual AI Backend
 - **Cloud Mode:** Uses Google Gemini 2.5 Flash for high-speed, high-accuracy analysis (Default).
-- **Local Mode (Optional):** Supports a custom fine-tuned LLM (`Hafiz-LM` based on Qwen2.5) running locally for privacy-focused or offline-capable inference.
+- **Local Mode (Optional):** Supports a custom fine-tuned LLM (Hafiz-LM based on Qwen2.5) running locally for privacy-focused or offline-capable inference.
 
 ---
 
@@ -38,7 +38,7 @@
 - **State Persistence:** LocalStorage
 
 **AI & Backend:**
-- **Cloud:** Google GenAI SDK (`gemini-2.5-flash-preview`)
+- **Cloud:** Google GenAI SDK (gemini-2.5-flash-preview)
 - **Local Backend:** Python, FastAPI, PyTorch
 - **Local Model:** Qwen/Qwen2.5-1.5B-Instruct (Fine-tuned with Peft/LoRA)
 
@@ -54,60 +54,60 @@
 ### 1. Frontend Setup
 
 1.  **Clone the repository:**
-    ```bash
+    \`\`\`bash
     git clone https://github.com/yourusername/qariai.git
     cd qariai
-    ```
+    \`\`\`
 
 2.  **Install dependencies:**
-    ```bash
+    \`\`\`bash
     npm install
-    ```
+    \`\`\`
 
 3.  **Configure API Key:**
-    Create a `.env` file in the root directory and add your Google Gemini API key:
-    ```env
+    Create a \`.env\` file in the root directory and add your Google Gemini API key:
+    \`\`\`env
     API_KEY=your_google_api_key_here
-    ```
-    *Note: In the current demo setup, the key is accessed via `process.env.API_KEY`. Ensure your bundler (Vite/Webpack) is configured to expose this or use a proxy server for production.*
+    \`\`\`
+    *Note: In the current demo setup, the key is accessed via \`process.env.API_KEY\`. Ensure your bundler (Vite/Webpack) is configured to expose this or use a proxy server for production.*
 
 4.  **Run the application:**
-    ```bash
+    \`\`\`bash
     npm start
-    ```
+    \`\`\`
 
 ### 2. Local Backend Setup (Optional)
 
-If you want to use the local `Hafiz-LM` model instead of calling Google's API for Hifz verification:
+If you want to use the local \`Hafiz-LM\` model instead of calling Google's API for Hifz verification:
 
 1.  **Navigate to the backend folder:**
-    ```bash
+    \`\`\`bash
     cd backend
-    ```
+    \`\`\`
 
 2.  **Install Python dependencies:**
-    ```bash
+    \`\`\`bash
     pip install -r requirements.txt
-    ```
+    \`\`\`
 
 3.  **Prepare Training Data (One-time):**
-    ```bash
+    \`\`\`bash
     python prepare_data.py
-    ```
+    \`\`\`
 
 4.  **Train/Fine-tune the Model (Requires GPU):**
-    ```bash
+    \`\`\`bash
     python train.py
-    ```
-    *This will create the adapter weights in `Hafiz-LM-1.5B-v1`.*
+    \`\`\`
+    *This will create the adapter weights in \`Hafiz-LM-1.5B-v1\`.*
 
 5.  **Run the API Server:**
-    ```bash
+    \`\`\`bash
     uvicorn app:app --reload --port 8000
-    ```
+    \`\`\`
 
 6.  **Connect Frontend:**
-    The React app automatically checks `http://localhost:8000/health` on startup. If the local server is running, it will switch the "Cloud AI" badge to "Local AI".
+    The React app automatically checks \`http://localhost:8000/health\` on startup. If the local server is running, it will switch the "Cloud AI" badge to "Local AI".
 
 ---
 
@@ -137,3 +137,4 @@ Contributions are welcome! Please fork the repository and submit a pull request 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+`;
