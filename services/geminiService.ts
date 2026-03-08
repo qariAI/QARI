@@ -42,23 +42,32 @@ export const analyzeRecitation = async (
     const model = getModel(genAI, modelName);
 
     const prompt = `
-      System: You are an extremely strict expert Quran Tajweed teacher.
-      Your task is to provide an objective, high-standard evaluation of a user's recitation.
+      System: You are an extremely strict, world-class Quran Tajweed Auditor.
+      Your mission is to provide a word-by-word surgical analysis of the user's recitation.
 
-      SCORING PHILOSOPHY:
-      - 100: Reserved for professional-level reciters.
-      - 90-99: Near perfect Tajweed, zero articulation errors.
-      - 80-89: Good recitation with only very minor timing issues.
-      - 70-79: Average beginner. Basic understanding but multiple minor mistakes.
-      - 60-69: Struggling beginner. Clear issues with Makharij or mandatory rules.
-      - Below 60: Significant and repeated Tajweed violations.
+      EVALUATION WORKFLOW:
+      Step 1: Transcribe the user's audio accurately.
+      Step 2: Compare against the authentic Quranic text (Hafs 'an Asim).
+      Step 3: Detect every single mistake in Makharij, Madd (timing), Ghunnah, and mandatory Tajweed rules.
+      Step 4: Calculate the score using these strict weights:
+              - Makharij: 40% (Deduct 5% per wrong articulation)
+              - Tajweed Rules: 40% (Deduct 3% per rule violation)
+              - Fluency: 20% (Deduct for hesitations or waqf errors)
 
-      EVALUATION RULES:
-      1. Strictly penalize: Wrong articulation (Makharij), missing Ghunnah, incorrect Madd length, and Saakinah/Tanween rules.
-      2. Weights: Makharij (40%), Tajweed Rules (40%), Fluency (20%).
-      3. Do NOT give easy high scores. Be critical. It is better to give a 65 than an unearned 85.
-      4. If a word is pronounced incorrectly, deduct at least 10 points from the total score.
-      5. Regional accents are allowed ONLY if the articulation point (Makharij) is still technically correct.
+      SCORING CALIBRATION:
+      - 100: Absolute perfection. Rare.
+      - 90-95: Masterful. Zero errors, perfect timing.
+      - 80-89: Very good. 1-2 minor timing issues only.
+      - 70-79: Average. Basic errors in Makharij or mandatory rules.
+      - 60-69: Struggling. Multiple clear mistakes.
+      - Below 60: Poor. Repeated failures in articulation or missing major rules.
+
+      STRICT RULES:
+      - Any Makharij mistake (e.g., Qaf pronounced as Kaf) MUST deduct at least 8 points from the total score.
+      - Missing a 4-6 count Madd MUST deduct at least 5 points.
+      - Missing Ghunnah MUST deduct at least 4 points.
+      - If there are ANY mistakes, the score CANNOT be above 85.
+      - If there are 3+ mistakes, the score CANNOT be above 70.
 
       User Context: ${verseContext || "Detect from audio"}
       Proficiency Level: ${proficiencyLevel}
@@ -73,15 +82,7 @@ export const analyzeRecitation = async (
         "positive_points": ["string"],
         "tajweed_score": number,
         "hifz_feedback": "string",
-        "score_breakdown": {
-          "makharij": number,
-          "madd_timing": number,
-          "ghunnah": number,
-          "qalqalah": number,
-          "tafkheem_tarqeeq": number,
-          "shaddah": number,
-          "flow_breath": number
-        },
+        "score_breakdown": {"makharij": number, "madd_timing": number, "ghunnah": number, "qalqalah": number, "tafkheem_tarqeeq": number, "shaddah": number, "flow_breath": number},
         "mistakes": [{
           "verse_word": "string",
           "letter": "string",
@@ -89,12 +90,7 @@ export const analyzeRecitation = async (
           "category": "Makharij" | "Timing" | "Sifaat" | "Memory",
           "severity": "Minor" | "Moderate" | "Major",
           "practice_tip": "string",
-          "coaching_details": {
-            "mouth_shape": "string",
-            "tongue_position": "string",
-            "airflow": "string",
-            "duration": "string"
-          }
+          "coaching_details": {"mouth_shape": "string", "tongue_position": "string", "airflow": "string", "duration": "string"}
         }],
         "daily_practice": "string",
         "encouragement": "string"
@@ -114,13 +110,16 @@ export const analyzeRecitation = async (
 
     const parsed = JSON.parse(jsonMatch[0]) as FeedbackData;
 
-    // Safety Fallbacks
+    // Safety Fallbacks & Sanity Checks
     if (!parsed.surah_number) parsed.surah_number = 0;
     if (!parsed.ayah_number) parsed.ayah_number = 0;
 
-    // Ensure score doesn't default too high if mistakes exist
-    if (parsed.tajweed_score === undefined || parsed.tajweed_score === null) {
-        parsed.tajweed_score = (parsed.mistakes && parsed.mistakes.length === 0) ? 100 : 60;
+    // Final sanity check: if mistakes exist but score is too high, force it down
+    if (parsed.mistakes && parsed.mistakes.length > 0) {
+        if (parsed.tajweed_score > 85) parsed.tajweed_score = 80;
+        if (parsed.mistakes.length >= 3 && parsed.tajweed_score > 70) parsed.tajweed_score = 68;
+    } else if (parsed.tajweed_score === undefined) {
+        parsed.tajweed_score = 100;
     }
 
     return parsed;
