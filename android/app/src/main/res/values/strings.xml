@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">QariAI</string>
+    <string name="title_activity_main">QariAI</string>
+    <string name="package_name">app.qari.ai</string>
+    <string name="custom_url_scheme">app.qari.ai</string>
+    <!-- Native Google Sign-In Client ID -->
+    <string name="server_client_id">284616519796-bre587n3jilglr8sjft871kt4tqb0v1p.apps.googleusercontent.com</string>
+</resources>

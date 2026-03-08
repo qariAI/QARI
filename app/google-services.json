@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "284616519796",
+    "project_id": "qariai-9012d",
+    "storage_bucket": "qariai-9012d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:284616519796:android:f0902556e0dae5b847e121",
+        "android_client_info": {
+          "package_name": "app.qari.ai"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "284616519796-go6ckrvu8t1c69rfhqnql5vr50cg9ov1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "app.qari.ai",
+            "certificate_hash": "d08b3bc5f191afcc82780e2b199c00354e29d125"
+          }
+        },
+        {
+          "client_id": "284616519796-bre587n3jilglr8sjft871kt4tqb0v1p.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBznwmDe8MElmPTaMJKjUPThNfKkmEIhdI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "284616519796-bre587n3jilglr8sjft871kt4tqb0v1p.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

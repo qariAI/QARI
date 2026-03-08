@@ -1,5 +1,4 @@
 
-
 export interface CoachingDetails {
   mouth_shape: string;
   tongue_position: string;
@@ -112,6 +111,9 @@ export interface UserGoals {
 
 export type ProficiencyLevel = 'Beginner' | 'Intermediate' | 'Advanced';
 
+/**
+ * MEMBERSHIP & USAGE TRACKING
+ */
 export interface UserStats {
   streak: number;
   lastPracticeDate: string | null; // ISO Date string
@@ -120,8 +122,13 @@ export interface UserStats {
   level: number;
   proficiencyLevel: ProficiencyLevel;
   history: SessionRecord[];
-  hifzProgress: HifzEntry[]; // New field for Hifz tracking
-  goals: UserGoals; // New: User set targets
+  hifzProgress: HifzEntry[];
+  goals: UserGoals;
+
+  // Usage Tiers & Quotas
+  isPremium: boolean;           // True for paid members
+  dailyUsageCount: number;      // Tries used today
+  lastUsageResetDate: string | null; // Last time count was reset (ISO Date)
 }
 
 export interface UserAnalytics {

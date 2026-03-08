@@ -1,0 +1,8 @@
+{
+  "appId": "app.qari.ai",
+  "appName": "QARI",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

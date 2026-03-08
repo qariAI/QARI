@@ -1,14 +1,17 @@
 
 import { UserStats, SessionRecord, FeedbackData, HifzEntry, HifzRevisionLog, UserAnalytics, SessionMistakeSummary, UserGoals } from '../types';
+import { db, auth } from './firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 const STORAGE_KEY = 'qariai_user_progress_v1';
+const FREE_DAILY_LIMIT = 10;
 
 const INITIAL_GOALS: UserGoals = {
   dailyMinutes: 15,
   weeklyAyahs: 5
 };
 
-const INITIAL_STATS: UserStats = {
+export const INITIAL_STATS: UserStats = {
   streak: 0,
   lastPracticeDate: null,
   totalSessions: 0,
@@ -17,121 +20,182 @@ const INITIAL_STATS: UserStats = {
   proficiencyLevel: 'Beginner',
   history: [],
   hifzProgress: [],
-  goals: INITIAL_GOALS
+  goals: INITIAL_GOALS,
+  isPremium: false,
+  dailyUsageCount: 0,
+  lastUsageResetDate: null
 };
 
-export const getProgress = (): UserStats => {
+export const getProgress = async (): Promise<UserStats> => {
+  try {
+    const user = auth.currentUser;
+    if (user) {
+      const docRef = doc(db, "users", user.uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data() as UserStats;
+        return checkAndResetDailyUsage(data);
+      }
+    }
+  } catch (e) {
+    console.warn("Firestore fetch failed", e);
+  }
+
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return INITIAL_STATS;
-    
     const parsed = JSON.parse(stored);
-    
-    // Migrations
-    if (!parsed.hifzProgress) parsed.hifzProgress = [];
-    
-    parsed.hifzProgress = parsed.hifzProgress.map((entry: any) => ({
-      ...entry,
-      revisionHistory: entry.revisionHistory || [],
-      interval: entry.interval || 1,
-      easeFactor: entry.easeFactor || 2.5
-    }));
-    
-    if (!parsed.proficiencyLevel) parsed.proficiencyLevel = 'Beginner';
-    if (!parsed.goals) parsed.goals = INITIAL_GOALS;
-
-    return parsed;
+    return checkAndResetDailyUsage({ ...INITIAL_STATS, ...parsed });
   } catch (e) {
-    console.error("Failed to load progress", e);
     return INITIAL_STATS;
   }
 };
 
-export const saveProgress = (stats: UserStats) => {
+const checkAndResetDailyUsage = (stats: UserStats): UserStats => {
+  const today = new Date().toISOString().split('T')[0];
+  if (stats.lastUsageResetDate !== today) {
+    return {
+      ...stats,
+      dailyUsageCount: 0,
+      lastUsageResetDate: today
+    };
+  }
+  return stats;
+};
+
+export const canUserRecite = (stats: UserStats): { canRecite: boolean, reason?: string } => {
+  if (stats.isPremium) return { canRecite: true };
+
+  if (stats.dailyUsageCount >= FREE_DAILY_LIMIT) {
+    return {
+      canRecite: false,
+      reason: "You have reached your limit of 10 free recitations for today. Become a member for unlimited access!"
+    };
+  }
+
+  return { canRecite: true };
+};
+
+export const incrementUsage = async (stats: UserStats): Promise<UserStats> => {
+  const updatedStats = {
+    ...stats,
+    dailyUsageCount: (stats.dailyUsageCount || 0) + 1
+  };
+  await saveProgress(updatedStats);
+  return updatedStats;
+};
+
+export const saveProgress = async (stats: UserStats) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
+    const user = auth.currentUser;
+    if (user) {
+      await setDoc(doc(db, "users", user.uid), stats);
+    }
   } catch (e) {
-    console.error("Failed to save progress", e);
+    console.error("Save failed", e);
   }
 };
 
-export const updateGoals = (newGoals: UserGoals): UserStats => {
-  const current = getProgress();
+export const updateGoals = async (newGoals: UserGoals): Promise<UserStats> => {
+  const current = await getProgress();
   const updated = { ...current, goals: newGoals };
-  saveProgress(updated);
+  await saveProgress(updated);
   return updated;
 };
 
 export const getDailyGoalProgress = (stats: UserStats) => {
+  if (!stats) return { minutes: { current: 0, target: 15, percent: 0 }, ayahs: { current: 0, target: 5, percent: 0 } };
   const todayStr = new Date().toISOString().split('T')[0];
+  const todaysSessions = (stats.history || []).filter(s => s.date?.startsWith(todayStr));
+  const minutesPracticed = todaysSessions.length * 2;
   
-  // Estimate minutes: simple heuristic, 2 mins per session recorded today
-  const todaysSessions = stats.history.filter(s => s.date.startsWith(todayStr));
-  const minutesPracticed = todaysSessions.length * 2; // Approx 2 mins per interaction
-  
-  // Weekly Ayahs: Count "New Memorization" in last 7 days
   const oneWeekAgo = new Date();
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
   
-  const newAyahsThisWeek = stats.hifzProgress.filter(entry => {
-    // Assuming 'revisionCount === 1' and 'revisionHistory' length 1 implies new
-    // A better way is to check the date of the first history entry
-    if (entry.revisionHistory.length === 0) return false;
+  const newAyahsThisWeek = (stats.hifzProgress || []).filter(entry => {
+    if (!entry.revisionHistory || entry.revisionHistory.length === 0) return false;
     const firstDate = new Date(entry.revisionHistory[0].date);
     return firstDate >= oneWeekAgo;
   }).length;
 
+  const targetMin = stats.goals?.dailyMinutes || 15;
+  const targetAyah = stats.goals?.weeklyAyahs || 5;
+
   return {
     minutes: {
       current: minutesPracticed,
-      target: stats.goals.dailyMinutes,
-      percent: Math.min(100, (minutesPracticed / stats.goals.dailyMinutes) * 100)
+      target: targetMin,
+      percent: Math.min(100, (minutesPracticed / targetMin) * 100)
     },
     ayahs: {
       current: newAyahsThisWeek,
-      target: stats.goals.weeklyAyahs,
-      percent: Math.min(100, (newAyahsThisWeek / stats.goals.weeklyAyahs) * 100)
+      target: targetAyah,
+      percent: Math.min(100, (newAyahsThisWeek / targetAyah) * 100)
     }
   };
 };
 
-export const calculateXP = (data: FeedbackData, isHifzMode: boolean): number => {
-  // Use the AI-calculated Tajweed score as base XP
-  let xp = data.tajweed_score || 0;
-  
-  // Bonus for perfect score
-  if (xp >= 95) xp += 20;
-  
-  // Hifz Bonus
-  if (isHifzMode) xp += 10;
+export const calculateXP = (data: FeedbackData, isHifzMode: boolean, currentStats: UserStats): number => {
+  let score = data.tajweed_score || 0;
+  const isPerfect = (data.mistakes || []).length === 0;
 
-  // Minimum XP for effort
-  return Math.max(10, Math.round(xp));
+  if (isPerfect && score < 80) {
+    score = 100;
+  }
+
+  if (score <= 10 && !isPerfect) return 0;
+
+  let totalXP = score;
+
+  if (score >= 98) totalXP += 50;
+  else if (score >= 90) totalXP += 20;
+  else if (score >= 80) totalXP += 10;
+
+  if (isHifzMode) totalXP *= 1.2;
+
+  const streakBonus = Math.min(currentStats.streak || 0, 10) * 2;
+  totalXP += streakBonus;
+
+  return Math.round(totalXP);
 };
 
 export const calculateLevel = (totalXP: number): number => {
-  return Math.floor(Math.sqrt(totalXP / 100)) + 1;
+  if (totalXP < 250) return 1;
+  if (totalXP < 750) return 2;
+  if (totalXP < 1500) return 3;
+  if (totalXP < 2500) return 4;
+  if (totalXP < 4000) return 5;
+  if (totalXP < 6000) return 6;
+  return Math.floor(Math.sqrt(totalXP / 150)) + 1;
 };
 
 export const getLevelProgress = (totalXP: number) => {
   const currentLevel = calculateLevel(totalXP);
-  const nextLevel = currentLevel + 1;
-  const currentLevelMinXP = 100 * Math.pow(currentLevel - 1, 2);
-  const nextLevelMinXP = 100 * Math.pow(nextLevel - 1, 2);
-  
+
+  const getMinXP = (lvl: number) => {
+    if (lvl === 1) return 0;
+    if (lvl === 2) return 250;
+    if (lvl === 3) return 750;
+    if (lvl === 4) return 1500;
+    if (lvl === 5) return 2500;
+    if (lvl === 6) return 4000;
+    return 150 * Math.pow(lvl - 1, 2);
+  };
+
+  const currentLevelMinXP = getMinXP(currentLevel);
+  const nextLevelMinXP = getMinXP(currentLevel + 1);
+
   const xpInCurrentLevel = totalXP - currentLevelMinXP;
   const xpRequiredForLevel = nextLevelMinXP - currentLevelMinXP;
   
   return {
     current: xpInCurrentLevel,
     required: xpRequiredForLevel,
-    percent: Math.min(100, Math.max(0, (xpInCurrentLevel / xpRequiredForLevel) * 100))
+    percent: Math.min(100, Math.max(0, (xpInCurrentLevel / (xpRequiredForLevel || 1)) * 100))
   };
 };
 
-/**
- * Advanced SuperMemo-2 (SM-2) Style SRS Algorithm
- */
 const calculateSRS = (
   scheduledInterval: number, 
   actualDaysPassed: number,
@@ -139,7 +203,6 @@ const calculateSRS = (
   accuracy: number, 
   previousAttempts: number
 ): { nextDate: string, newInterval: number, newMastery: number, newEF: number } => {
-  // 1. Convert Accuracy (0-100) to Quality (0-5)
   let q = 0;
   if (accuracy >= 95) q = 5;
   else if (accuracy >= 85) q = 4;
@@ -152,7 +215,6 @@ const calculateSRS = (
   let newEF = currentEF;
 
   if (q >= 3) {
-    // Success Case (Pass)
     newEF = currentEF + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
     if (newEF < 1.3) newEF = 1.3; 
 
@@ -161,24 +223,12 @@ const calculateSRS = (
     } else if (previousAttempts === 1) {
       newInterval = 3;
     } else {
-      if (actualDaysPassed < scheduledInterval * 0.5) {
-         newInterval = Math.ceil(scheduledInterval * (q === 5 ? 1.1 : 1.0));
-      } 
-      else {
-         const base = (actualDaysPassed > scheduledInterval && q >= 4) ? actualDaysPassed : scheduledInterval;
-         newInterval = Math.ceil(base * newEF);
-         const fuzz = 0.95 + Math.random() * 0.1;
-         newInterval = Math.round(newInterval * fuzz);
-      }
+      newInterval = Math.ceil(scheduledInterval * newEF);
     }
   } else {
-    // Failure Case
     newInterval = 1;
     newEF = Math.max(1.3, currentEF - 0.2);
   }
-
-  if (newInterval > 365) newInterval = 365;
-  if (newInterval < 1) newInterval = 1;
 
   const nextDate = new Date();
   nextDate.setDate(nextDate.getDate() + newInterval);
@@ -197,59 +247,32 @@ const calculateSRS = (
   };
 };
 
-export const logHifzItem = (stats: UserStats, data: FeedbackData): UserStats => {
+export const logHifzItem = async (stats: UserStats, data: FeedbackData): Promise<UserStats> => {
   if (!data.surah_number || !data.ayah_number) return stats;
-
   const id = `${data.surah_number}:${data.ayah_number}`;
   const now = new Date().toISOString();
-  
-  // Use the AI-provided Tajweed score as accuracy (fallback to simple calc if missing)
-  let accuracy = data.tajweed_score;
-  if (accuracy === undefined) {
-    const penaltyScore = data.mistakes.reduce((acc, m) => {
-        let penalty = 0;
-        if (m.severity === 'Major') penalty = 20;
-        else if (m.severity === 'Moderate') penalty = 10;
-        else penalty = 2;
-        return acc + penalty;
-    }, 0);
-    accuracy = Math.max(0, 100 - penaltyScore);
-  }
+  let accuracy = data.tajweed_score || 0;
 
   const newLog: HifzRevisionLog = {
     date: now,
-    mistakes: data.mistakes.length,
+    mistakes: (data.mistakes || []).length,
     accuracy: accuracy
   };
   
-  const existingEntryIndex = stats.hifzProgress.findIndex(item => item.id === id);
-  let updatedHifzProgress = [...stats.hifzProgress];
+  let updatedHifzProgress = [...(stats.hifzProgress || [])];
+  const existingIdx = updatedHifzProgress.findIndex(item => item.id === id);
 
-  if (existingEntryIndex >= 0) {
-    const entry = updatedHifzProgress[existingEntryIndex];
-    const effectiveRevisions = accuracy < 70 ? 0 : (entry.revisionCount || 0);
-
-    let actualDaysPassed = entry.interval || 1;
-    if (entry.lastReviewed) {
-        const lastRevDate = new Date(entry.lastReviewed);
-        const nowDate = new Date(now);
-        if (!isNaN(lastRevDate.getTime())) {
-            const diffTime = Math.abs(nowDate.getTime() - lastRevDate.getTime());
-            actualDaysPassed = diffTime / (1000 * 60 * 60 * 24);
-        }
-    }
-
+  if (existingIdx >= 0) {
+    const entry = updatedHifzProgress[existingIdx];
     const { nextDate, newInterval, newMastery, newEF } = calculateSRS(
       entry.interval || 1, 
-      actualDaysPassed,
+      1,
       entry.easeFactor || 2.5, 
       accuracy, 
-      effectiveRevisions
+      entry.revisionCount || 0
     );
     
-    const updatedHistory = [...(entry.revisionHistory || []), newLog].slice(-20);
-
-    updatedHifzProgress[existingEntryIndex] = {
+    updatedHifzProgress[existingIdx] = {
       ...entry,
       lastReviewed: now,
       nextReviewDate: nextDate,
@@ -257,152 +280,106 @@ export const logHifzItem = (stats: UserStats, data: FeedbackData): UserStats => 
       easeFactor: newEF,
       masteryLevel: newMastery,
       revisionCount: (entry.revisionCount || 0) + 1,
-      revisionHistory: updatedHistory
+      revisionHistory: [...(entry.revisionHistory || []), newLog].slice(-20)
     };
   } else {
-    const nextDate = new Date();
-    nextDate.setDate(nextDate.getDate() + 1);
-
-    const newEntry: HifzEntry = {
-      id,
-      surah: data.surah_number,
-      ayah: data.ayah_number,
-      status: 'MEMORIZED',
-      lastReviewed: now,
-      nextReviewDate: nextDate.toISOString(),
-      interval: 1,
-      easeFactor: 2.5,
-      masteryLevel: 1,
-      revisionCount: 1,
-      revisionHistory: [newLog]
-    };
-    updatedHifzProgress.push(newEntry);
+    updatedHifzProgress.push({
+      id, surah: data.surah_number, ayah: data.ayah_number, status: 'MEMORIZED',
+      lastReviewed: now, nextReviewDate: new Date(Date.now() + 86400000).toISOString(),
+      interval: 1, easeFactor: 2.5, masteryLevel: 1, revisionCount: 1, revisionHistory: [newLog]
+    });
   }
 
-  const newStats = {
-    ...stats,
-    hifzProgress: updatedHifzProgress
-  };
-
-  saveProgress(newStats);
+  const newStats = { ...stats, hifzProgress: updatedHifzProgress };
+  await saveProgress(newStats);
   return newStats;
 };
 
 export const getDueRevisions = (stats: UserStats): HifzEntry[] => {
   const now = new Date();
-  return stats.hifzProgress.filter(entry => {
-    return new Date(entry.nextReviewDate) <= now;
-  }).sort((a, b) => a.surah - b.surah || a.ayah - b.ayah);
+  return (stats.hifzProgress || []).filter(entry => new Date(entry.nextReviewDate) <= now)
+    .sort((a, b) => a.surah - b.surah || a.ayah - b.ayah);
 };
 
-export const updateProgress = (currentStats: UserStats, sessionData: FeedbackData, verseContext: string, isHifzMode: boolean): { newStats: UserStats, xpGained: number } => {
+export const updateProgress = async (currentStats: UserStats, sessionData: FeedbackData, verseContext: string, isHifzMode: boolean): Promise<{ newStats: UserStats, xpGained: number }> => {
   const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
-  const lastDateStr = currentStats.lastPracticeDate ? currentStats.lastPracticeDate.split('T')[0] : null;
-  
-  let newStreak = currentStats.streak;
-  if (lastDateStr !== todayStr) {
-    const yesterday = new Date(now);
+
+  let newStreak = currentStats.streak || 0;
+  const lastDate = currentStats.lastPracticeDate ? new Date(currentStats.lastPracticeDate).toISOString().split('T')[0] : null;
+  const today = now.toISOString().split('T')[0];
+
+  if (lastDate !== today) {
+    const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split('T')[0];
-    if (lastDateStr === yesterdayStr) newStreak += 1;
-    else newStreak = 1;
+
+    if (lastDate === yesterdayStr) {
+      newStreak += 1;
+    } else if (lastDate === null || lastDate < yesterdayStr) {
+      newStreak = 1;
+    }
   }
 
-  const xpGained = calculateXP(sessionData, isHifzMode);
-  const newTotalXP = currentStats.totalXP + xpGained;
-  const newLevel = calculateLevel(newTotalXP);
-
-  // Extract analytics-friendly summary
-  const mistakeSummary: SessionMistakeSummary[] = sessionData.mistakes.map(m => ({
-    letter: m.letter,
-    rule: m.rule
-  }));
+  const xpGained = calculateXP(sessionData, isHifzMode, { ...currentStats, streak: newStreak });
+  const newTotalXP = (currentStats.totalXP || 0) + xpGained;
 
   const newRecord: SessionRecord = {
     id: Date.now().toString(),
     date: now.toISOString(),
-    surah_ayah: verseContext || `Surah ${sessionData.surah_number}:${sessionData.ayah_number}`,
-    mistakes_count: sessionData.mistakes.length,
+    surah_ayah: (sessionData.surah_number > 0) ? `Surah ${sessionData.surah_number}:${sessionData.ayah_number}` : verseContext || "Unknown Verse",
+    mistakes_count: (sessionData.mistakes || []).length,
     xp_gained: xpGained,
     is_hifz: isHifzMode,
     score: sessionData.tajweed_score,
-    mistake_summary: mistakeSummary
+    mistake_summary: (sessionData.mistakes || []).map(m => ({ letter: m.letter, rule: m.rule }))
   };
 
   const newStats: UserStats = {
     ...currentStats,
     streak: newStreak,
     lastPracticeDate: now.toISOString(),
-    totalSessions: currentStats.totalSessions + 1,
+    totalSessions: (currentStats.totalSessions || 0) + 1,
     totalXP: newTotalXP,
-    level: newLevel,
-    proficiencyLevel: currentStats.proficiencyLevel,
-    history: [newRecord, ...currentStats.history].slice(0, 50)
+    level: calculateLevel(newTotalXP),
+    history: [newRecord, ...(currentStats.history || [])].slice(0, 50)
   };
 
-  saveProgress(newStats);
+  await saveProgress(newStats);
   return { newStats, xpGained };
 };
 
 export const getUserAnalytics = (stats: UserStats): UserAnalytics => {
-  const history = stats.history;
-  const count = history.length;
-  
-  // 1. Average Score
-  const totalScore = history.reduce((acc, sess) => acc + (sess.score || 0), 0);
-  const avgScore = count > 0 ? Math.round(totalScore / count) : 0;
+  const history = stats?.history || [];
 
-  // 2. Improvement Rate (Last 5 vs Previous 5)
-  let improvementRate = "0%";
-  if (count >= 2) {
-      const recent = history.slice(0, 5);
-      const previous = history.slice(5, 10);
-      
-      const recentAvg = recent.reduce((acc, s) => acc + (s.score || 0), 0) / recent.length;
-      
-      if (previous.length > 0) {
-        const prevAvg = previous.reduce((acc, s) => acc + (s.score || 0), 0) / previous.length;
-        const diff = recentAvg - prevAvg;
-        // avoid division by zero
-        const percent = prevAvg === 0 ? 100 : (diff / prevAvg) * 100;
-        improvementRate = (diff >= 0 ? "+" : "") + Math.round(percent) + "%";
-      } else {
-        improvementRate = "N/A";
-      }
-  }
+  const last5 = history.slice(0, 5);
+  const prev5 = history.slice(5, 10);
 
-  // 3. Weak Letters & Rules
+  const lastAvg = last5.length > 0 ? last5.reduce((a, s) => a + (s.score || 0), 0) / last5.length : 0;
+  const prevAvg = prev5.length > 0 ? prev5.reduce((a, s) => a + (s.score || 0), 0) / prev5.length : 0;
+
+  const diff = lastAvg - prevAvg;
+  const improvement = prevAvg === 0 ? "Initial" : `${diff > 0 ? '+' : ''}${Math.round(diff)}%`;
+
+  const allMistakes = history.flatMap(s => s.mistake_summary || []);
   const letterCounts: Record<string, number> = {};
   const ruleCounts: Record<string, number> = {};
 
-  history.forEach(sess => {
-      if (sess.mistake_summary) {
-          sess.mistake_summary.forEach(m => {
-              if (m.letter) letterCounts[m.letter] = (letterCounts[m.letter] || 0) + 1;
-              if (m.rule) ruleCounts[m.rule] = (ruleCounts[m.rule] || 0) + 1;
-          });
-      }
+  allMistakes.forEach(m => {
+    if (m.letter) letterCounts[m.letter] = (letterCounts[m.letter] || 0) + 1;
+    if (m.rule) ruleCounts[m.rule] = (ruleCounts[m.rule] || 0) + 1;
   });
 
-  const sortedLetters = Object.entries(letterCounts)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 3)
-      .map(([k]) => k);
-
-  const sortedRules = Object.entries(ruleCounts)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 2) // Top 2 rules
-      .map(([k]) => k);
+  const weakLetters = Object.entries(letterCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(e => e[0]);
+  const weakRules = Object.entries(ruleCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(e => e[0]);
 
   return {
-      user_id: "local_user",
-      current_level: `Level ${stats.level} (${stats.proficiencyLevel})`,
-      avg_score: avgScore,
-      weak_letters: sortedLetters,
-      weak_rules: sortedRules,
-      sessions_completed: stats.totalSessions,
-      last_practice: stats.lastPracticeDate || "Never",
-      improvement_rate: improvementRate
+    user_id: auth.currentUser?.uid || "local_user",
+    current_level: `Level ${stats?.level || 1}`,
+    avg_score: history.length > 0 ? Math.round(history.reduce((acc, s) => acc + (s.score || 0), 0) / history.length) : 0,
+    weak_letters: weakLetters,
+    weak_rules: weakRules,
+    sessions_completed: stats?.totalSessions || 0,
+    last_practice: stats?.lastPracticeDate || "Never",
+    improvement_rate: improvement
   };
 };

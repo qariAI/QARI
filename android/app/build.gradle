@@ -1,0 +1,95 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace "app.qari.ai"
+    compileSdk 35
+    
+    defaultConfig {
+        applicationId "app.qari.ai"
+        minSdkVersion 23
+        targetSdkVersion 35
+        versionCode 14
+        versionName "1.1.3"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+
+    signingConfigs {
+        release {
+            storeFile file('qariai-release-key.jks')
+            storePassword 'BLITZ1970'
+            keyAlias 'qariai-alias'
+            keyPassword 'BLITZ1970'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:1.7.1"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:1.3.0"
+    implementation "androidx.core:core-splashscreen:1.2.0"
+    implementation project(':capacitor-android')
+    
+    implementation 'com.google.android.gms:play-services-auth:21.5.1'
+    implementation platform('com.google.firebase:firebase-bom:34.10.0')
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-firestore'
+
+    if (findProject(':capacitor-cordova-android-plugins')) {
+        implementation project(':capacitor-cordova-android-plugins')
+    }
+}
+
+apply from: 'capacitor.build.gradle'
+apply plugin: 'com.google.gms.google-services'
+
+/**
+ * THE ULTIMATE NUCLEAR FIX (V4)
+ * Forces all signing configurations to use the correct keystore and alias.
+ */
+afterEvaluate {
+    def ksFile = file("qariai-release-key.jks")
+    android.signingConfigs.all { config ->
+        if (config.name == 'externalOverride' || config.storeFile == null || !config.storeFile.exists()) {
+            config.storeFile = ksFile
+            config.storePassword = "BLITZ1970"
+            config.keyAlias = "qariai-alias"
+            config.keyPassword = "BLITZ1970"
+        }
+    }
+}
+
+// NEW AUTOMATION TASK
+tasks.register('copyToDesktop', Copy) {
+    from 'build/outputs/bundle/release/app-release.aab'
+    into System.getProperty("user.home") + "/Desktop"
+    rename { String fileName ->
+        "QARI-Release-${android.defaultConfig.versionName}.aab"
+    }
+    dependsOn 'bundleRelease' // This makes it build the AAB first
+}
+
+task getReleaseSHA1 {
+    doLast {
+        def ksFile = file('qariai-release-key.jks')
+        def password = 'BLITZ1970'
+        def alias = 'qariai-alias'
+        def keystore = java.security.KeyStore.getInstance("JKS")
+        ksFile.withInputStream { keystore.load(it, password.toCharArray()) }
+        def cert = keystore.getCertificate(alias)
+        def sha1 = java.security.MessageDigest.getInstance("SHA-1").digest(cert.encoded).collect { String.format("%02X", it) }.join(":")
+        throw new GradleException("RELEASE_SHA1: " + sha1)
+    }
+}
